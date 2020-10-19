@@ -1,3 +1,5 @@
 analysis
 ^Dockerfile$
 ^LICENSE\.md$
+^.*\.Rproj$
+^\.Rproj\.user$

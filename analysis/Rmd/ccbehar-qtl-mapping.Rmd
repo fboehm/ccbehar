@@ -1,0 +1,207 @@
+---
+title: "Initial QTL mapping with flow cytometry traits"
+author: "Frederick J. Boehm"
+date: "10/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(magrittr)
+```
+
+After reading in the traits from the csv files, we want to rankZ transform the traits before mapping. 
+
+```{r rankZ}
+rankZ = function(x) {
+  x = rank(x, na.last = "keep", ties.method = "average") / (sum(!is.na(x)) + 1)
+  return(qnorm(x))
+}
+```
+
+
+Now, load the CC mouse genotypes data from Clare's study.
+
+```{r}
+load("../data/derived_data/reduced_map_qtl2_mapping_objects.Rdata")
+rownames(genoprobs.1$`1`) -> gprn
+gprn2 <- stringr::str_replace(gprn, "cs", "")
+```
+
+## Missing strains
+
+Three strains from Rocky's collection of mice were not present in Clare's study, 
+and, thus, we have no genotypes data for those mouse lines.
+
+```{r}
+readr::read_csv("../data/raw_data/Behar_Batch1 -3_infected_numbers_v1.csv") %>%
+  dplyr::filter(!Strain %in% gprn2, stringr::str_starts(Strain, pattern = "CC")) %>%
+  dplyr::select(Strain) %>% unlist %>% unique
+```
+
+## Read genotypes probabilities files and construct a genotypes array for qtl2
+
+We downloaded the genotype probabilities files from the site:
+
+https://csbio.unc.edu/CCstatus/index.py?run=FounderProbs
+
+
+```{r}
+gf_path <- "../data/raw_data/geno_files/"
+fns <- dir(gf_path)
+full_fns <- paste0(gf_path, fns)
+geno_raw <- list()
+entry_num <- 1
+for (fn in full_fns){
+  geno_raw[[entry_num]] <- read.csv(fn)
+  entry_num <- 1 + entry_num
+}
+n_markers_per_chr <- geno_raw[[1]]$chromosome %>% table()
+chr_char <- c(as.character(1:19), "X")
+gg <- array(dim= c(18, 36, nrow(geno_raw[[1]])))
+# make a single array with all chromosomes' data
+for (marker in 1:nrow(geno_raw[[1]])){
+  for (mouse_line in 1:length(geno_raw)){
+    gg[mouse_line, , marker] <- as.numeric(geno_raw[[mouse_line]][marker, - c(1:3)])
+  }
+}
+# add marker names
+dimnames(gg)[[3]] <- geno_raw[[1]]$marker
+dimnames(gg)[[2]] <- colnames(geno_raw[[1]])[- c(1:3)]
+# prepare rownames
+rn <- fns %>%
+  (function(x){stringr::str_split(x, pattern = "_")}) %>%
+  sapply(FUN = function(x)x[1])
+dimnames(gg)[[1]] <- rn 
+# break single array into one array per chr
+behar_geno <- list()
+for (chr in 1:19){ #ignore X for now!
+  behar_geno[[chr]] <- gg[, , geno_raw[[1]]$chromosome == chr_char[chr]]
+}
+attributes(behar_geno)$alleleprobs <- FALSE
+attributes(behar_geno)$cross_type <- "cc"
+rm(genoprobs.1)
+```
+
+```{r aprobs}
+collapsing_matrix <- matrix(data = 0, nrow = 36, ncol = 8)
+colnames(collapsing_matrix) <- LETTERS[1:8]
+rownames(collapsing_matrix) <- colnames(behar_geno[[1]])
+for (i in 1:8){
+  collapsing_matrix[i, i] <- 1
+}
+for (i in 9:15){
+  collapsing_matrix[i, 1] <- 0.5
+  collapsing_matrix[i, i - 7] <- 0.5
+}
+for (i in 16:21){
+  collapsing_matrix[i, 2] <- 0.5
+  collapsing_matrix[i, i - 13] <- 0.5
+}
+for (i in 22:26){
+  collapsing_matrix[i, 3] <- 0.5
+  collapsing_matrix[i, i - 18] <- 0.5
+}
+for (i in 27:30){
+  collapsing_matrix[i, 4] <- 0.5
+  collapsing_matrix[i, i - 22] <- 0.5
+}
+for (i in 31:33){
+  collapsing_matrix[i, 5] <- 0.5
+  collapsing_matrix[i, i - 25] <- 0.5
+}
+for (i in 34:35){
+  collapsing_matrix[i, 6] <- 0.5
+  collapsing_matrix[i, i - 27] <- 0.5
+}
+collapsing_matrix[36, 7] <- 0.5
+collapsing_matrix[36, 8] <- 0.5
+```
+
+
+```{r}
+
+B <- collapsing_matrix
+# multiply each A[,,i]%*%B
+behar_aprobs <- list()
+for (i in 1:19){
+  A <- behar_geno[[i]]
+  C <- array(NA, dim=c(nrow(A), ncol(B), dim(behar_geno[[i]])[[3]]))
+  C[] <- apply(X = A, MARGIN = 3, FUN = function(x) x%*%B)
+  dimnames(C)[[1]] <- rownames(behar_geno[[i]])
+  dimnames(C)[[2]] <- LETTERS[1:8]
+  dimnames(C)[[3]] <- dimnames(behar_geno[[i]])[[3]]
+  behar_aprobs[[i]] <- C
+}
+# set attributes
+attributes(behar_aprobs)$names <- as.character(1:19)
+attributes(behar_aprobs)$is_x_chr <- rep(FALSE, 19)
+attributes(behar_aprobs)$crosstype <- "cc"
+attributes(behar_aprobs)$alleles <- LETTERS[1:8]
+attributes(behar_aprobs)$alleleprobs <- TRUE
+attributes(behar_aprobs)$class <- c("calc_genoprob", "list")
+saveRDS(behar_aprobs, file = "../data/raw_data/behar_aprobs.rds")
+```
+
+
+## Read phenotypes files
+
+
+```{r read_data}
+data_num <- readr::read_csv("../data/raw_data/Behar_Batch1 -3_infected_numbers_v1.csv", 
+                            col_types = paste0(c(rep("c", times = 3), 
+                                          rep("d", times = 104)), collapse = "")) %>%
+  dplyr::filter(stringr::str_starts(Strain, pattern = "CC")) %>%
+  dplyr::select(-c(2:5)) %>%
+  dplyr::group_by(Strain) %>%
+  dplyr::summarise_all(.funs = mean, na.rm = TRUE)
+
+data_perc <- readr::read_csv("../data/raw_data/Behar_Batch1 -3_infected_percent_v1.csv", 
+                            col_types = paste0(c(rep("c", times = 3), 
+                                          rep("d", times = 104)), collapse = "")) %>%
+  dplyr::filter(stringr::str_starts(Strain, pattern = "CC")) %>%
+  dplyr::select(-c(2:5)) %>%
+  dplyr::group_by(Strain) %>%
+  dplyr::summarise_all(.funs = mean, na.rm = TRUE)
+```
+
+```{r}
+data_num_rz <- apply(FUN = rankZ, 
+                     X = data_num[, -1], 
+                     MARGIN = 2)
+```
+
+We note that there are two rows with NA values of the variable "Mouse". It looks like these correspond to rows without any data. I removed the two rows in teh code above and below.
+
+```{r}
+data_perc_rz <- apply(FUN = rankZ, 
+                      X = data_perc[, - 1], 
+                      MARGIN = 2)
+```
+
+
+
+
+```{r}
+behar_kinship <- qtl2::calc_kinship(probs = behar_aprobs, type = "loco")
+```
+
+```{r}
+rownames(data_num_rz) <- data_num$Strain
+s1o_num <- qtl2::scan1(genoprobs = behar_aprobs, pheno = data_num_rz, kinship = behar_kinship, reml = TRUE)
+qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5) %>% 
+  tibble::as_tibble() %>%
+  dplyr::arrange(desc(lod))
+```
+
+```{r}
+rownames(data_perc_rz) <- data_perc$Strain
+
+s1o_perc <- qtl2::scan1(genoprobs = behar_aprobs, pheno = data_perc_rz, kinship = behar_kinship, reml = TRUE)
+qtl2::find_peaks(s1o_perc, map = map.1, peakdrop = 1.5) %>% 
+  tibble::as_tibble() %>%
+  dplyr::arrange(desc(lod))
+```
+
+
+
