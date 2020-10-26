@@ -34,14 +34,15 @@ Three strains from Rocky's collection of mice were not present in Clare's study,
 and, thus, we have no genotypes data for those mouse lines.
 
 ```{r}
-readr::read_csv("../data/raw_data/Behar_Batch1 -3_infected_numbers_v1.csv") %>%
-  dplyr::filter(!Strain %in% gprn2, stringr::str_starts(Strain, pattern = "CC")) %>%
+readr::read_csv("../data/raw_data/Behar_Batch1 -6_infected_numbers_v1.csv") %>%
+  #dplyr::filter(!Strain %in% gprn2, stringr::str_starts(Strain, pattern = "CC")) %>%
+  dplyr::arrange(Strain) %>%
   dplyr::select(Strain) %>% unlist %>% unique
 ```
 
 ## Read genotypes probabilities files and construct a genotypes array for qtl2
 
-We downloaded the genotype probabilities files from the site:
+We downloaded the genotype probabilities files - for all of Rocky's lines - from the site:
 
 https://csbio.unc.edu/CCstatus/index.py?run=FounderProbs
 
@@ -58,7 +59,7 @@ for (fn in full_fns){
 }
 n_markers_per_chr <- geno_raw[[1]]$chromosome %>% table()
 chr_char <- c(as.character(1:19), "X")
-gg <- array(dim= c(18, 36, nrow(geno_raw[[1]])))
+gg <- array(dim= c(24, 36, nrow(geno_raw[[1]])))
 # make a single array with all chromosomes' data
 for (marker in 1:nrow(geno_raw[[1]])){
   for (mouse_line in 1:length(geno_raw)){
@@ -116,6 +117,7 @@ for (i in 34:35){
 }
 collapsing_matrix[36, 7] <- 0.5
 collapsing_matrix[36, 8] <- 0.5
+collapsing_matrix
 ```
 
 
@@ -144,40 +146,28 @@ saveRDS(behar_aprobs, file = "../data/raw_data/behar_aprobs.rds")
 ```
 
 
-## Read phenotypes files
+## Read phenotypes file
 
 
 ```{r read_data}
-data_num <- readr::read_csv("../data/raw_data/Behar_Batch1 -3_infected_numbers_v1.csv", 
-                            col_types = paste0(c(rep("c", times = 3), 
-                                          rep("d", times = 104)), collapse = "")) %>%
+data_num <- readr::read_csv("../data/raw_data/Behar_Batch1 -6_infected_numbers_v1.csv", 
+                            col_types = paste0(c(rep("c", times = 5), 
+                                          rep("d", times = 37)), collapse = "")) %>%
   dplyr::filter(stringr::str_starts(Strain, pattern = "CC")) %>%
   dplyr::select(-c(2:5)) %>%
   dplyr::group_by(Strain) %>%
   dplyr::summarise_all(.funs = mean, na.rm = TRUE)
 
-data_perc <- readr::read_csv("../data/raw_data/Behar_Batch1 -3_infected_percent_v1.csv", 
-                            col_types = paste0(c(rep("c", times = 3), 
-                                          rep("d", times = 104)), collapse = "")) %>%
-  dplyr::filter(stringr::str_starts(Strain, pattern = "CC")) %>%
-  dplyr::select(-c(2:5)) %>%
-  dplyr::group_by(Strain) %>%
-  dplyr::summarise_all(.funs = mean, na.rm = TRUE)
 ```
 
 ```{r}
 data_num_rz <- apply(FUN = rankZ, 
-                     X = data_num[, -1], 
+                     X = data_num[, -c(1:5)], 
                      MARGIN = 2)
 ```
 
-We note that there are two rows with NA values of the variable "Mouse". It looks like these correspond to rows without any data. I removed the two rows in teh code above and below.
+We note that there are two rows with NA values of the variable "Mouse". It looks like these correspond to rows without any data. I removed the two rows in teh code above.
 
-```{r}
-data_perc_rz <- apply(FUN = rankZ, 
-                      X = data_perc[, - 1], 
-                      MARGIN = 2)
-```
 
 
 
@@ -189,16 +179,7 @@ behar_kinship <- qtl2::calc_kinship(probs = behar_aprobs, type = "loco")
 ```{r}
 rownames(data_num_rz) <- data_num$Strain
 s1o_num <- qtl2::scan1(genoprobs = behar_aprobs, pheno = data_num_rz, kinship = behar_kinship, reml = TRUE)
-qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5) %>% 
-  tibble::as_tibble() %>%
-  dplyr::arrange(desc(lod))
-```
-
-```{r}
-rownames(data_perc_rz) <- data_perc$Strain
-
-s1o_perc <- qtl2::scan1(genoprobs = behar_aprobs, pheno = data_perc_rz, kinship = behar_kinship, reml = TRUE)
-qtl2::find_peaks(s1o_perc, map = map.1, peakdrop = 1.5) %>% 
+qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6) %>% 
   tibble::as_tibble() %>%
   dplyr::arrange(desc(lod))
 ```
