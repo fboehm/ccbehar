@@ -170,7 +170,7 @@ data_num <- readr::read_csv("../data/raw_data/Behar_Batch1 -6_infected_numbers_v
 
 ```{r}
 data_num_rz <- apply(FUN = rankZ, 
-                     X = data_num[, -c(1:5)], 
+                     X = data_num[ , -1], 
                      MARGIN = 2)
 ```
 
@@ -205,7 +205,11 @@ if (!file.exists(permfn)) {
 ```{r findpeaks}
 qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6) %>% 
   tibble::as_tibble() %>%
-  dplyr::arrange(desc(lod))
+  dplyr::rename(trait = lodcolumn) %>%
+  dplyr::mutate(pvalue = purrr::map2_dbl(.x = trait, .y = lod, .f = function(x, y){
+    qtl2tb::get_pvalue(scan1perm_out = s1perm, lod = y, trait_name = x)$pvalue
+  }))
+
 ```
 
 
