@@ -5,9 +5,17 @@ date: "10/7/2020"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+```{r setup2, include=TRUE, dev="CairoPNG"}
+knitr::opts_chunk$set(dev="CairoPNG")
+```
+
+
+
+
+```{r setup, include=TRUE}
 knitr::opts_chunk$set(echo = TRUE)
 library(magrittr)
+nc <- 16
 ```
 
 After reading in the traits from the csv files, we want to rankZ transform the traits before mapping. 
@@ -179,6 +187,22 @@ behar_kinship <- qtl2::calc_kinship(probs = behar_aprobs, type = "loco")
 ```{r}
 rownames(data_num_rz) <- data_num$Strain
 s1o_num <- qtl2::scan1(genoprobs = behar_aprobs, pheno = data_num_rz, kinship = behar_kinship, reml = TRUE)
+permfn <- "../data/derived_data/cc_perms.rds"
+if (!file.exists(permfn)) {
+  s1perm <- qtl2::scan1perm(genoprobs = behar_aprobs, 
+                            pheno = data_num_rz, 
+                            kinship = behar_kinship, 
+                            reml = TRUE, 
+                            n_perm = 1000, 
+                            cores = nc)
+  saveRDS(s1perm, permfn)
+} else {
+  s1perm <- readRDS(permfn)
+  } 
+
+```
+
+```{r findpeaks}
 qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6) %>% 
   tibble::as_tibble() %>%
   dplyr::arrange(desc(lod))
