@@ -56,6 +56,8 @@ https://csbio.unc.edu/CCstatus/index.py?run=FounderProbs
 
 
 ```{r}
+apr_file <- "../data/raw_data/behar_aprobs.rds"
+if (!file.exists(apr_file)){
 gf_path <- "../data/raw_data/geno_files/"
 fns <- dir(gf_path)
 full_fns <- paste0(gf_path, fns)
@@ -89,10 +91,11 @@ for (chr in 1:19){ #ignore X for now!
 }
 attributes(behar_geno)$alleleprobs <- FALSE
 attributes(behar_geno)$cross_type <- "cc"
-rm(genoprobs.1)
+}
 ```
 
 ```{r aprobs}
+if (!file.exists(apr_file)){
 collapsing_matrix <- matrix(data = 0, nrow = 36, ncol = 8)
 colnames(collapsing_matrix) <- LETTERS[1:8]
 rownames(collapsing_matrix) <- colnames(behar_geno[[1]])
@@ -126,11 +129,12 @@ for (i in 34:35){
 collapsing_matrix[36, 7] <- 0.5
 collapsing_matrix[36, 8] <- 0.5
 collapsing_matrix
+}
 ```
 
 
 ```{r}
-
+if (!file.exists(apr_file)){
 B <- collapsing_matrix
 # multiply each A[,,i]%*%B
 behar_aprobs <- list()
@@ -151,6 +155,8 @@ attributes(behar_aprobs)$alleles <- LETTERS[1:8]
 attributes(behar_aprobs)$alleleprobs <- TRUE
 attributes(behar_aprobs)$class <- c("calc_genoprob", "list")
 saveRDS(behar_aprobs, file = "../data/raw_data/behar_aprobs.rds")
+}
+behar_aprobs <- readRDS(apr_file)
 ```
 
 
@@ -208,9 +214,146 @@ qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6) %>%
   dplyr::rename(trait = lodcolumn) %>%
   dplyr::mutate(pvalue = purrr::map2_dbl(.x = trait, .y = lod, .f = function(x, y){
     qtl2tb::get_pvalue(scan1perm_out = s1perm, lod = y, trait_name = x)$pvalue
-  }))
+  })) %>%
+  dplyr::arrange(pvalue)
 
 ```
 
+## Correlations among traits (before rankZ)
+
+```{r}
+cor(data_num[, -1]) %>%
+  plotly::plot_ly(z = ., type = "heatmap")
+cor(data_num[, -1]) %>%
+  heatmaply::heatmaply()
+```
+
+## Correlations among traits (after rankZ)
+
+```{r}
+cor(data_num_rz) %>%
+  plotly::plot_ly(z = ., type = "heatmap")
+cor(data_num_rz) %>%
+  heatmaply::heatmaply()
+```
+
+## Mapping with additive covariates
+
+```{r make-covariates}
+data_num_allmice <- readr::read_csv("../data/raw_data/Behar_Batch1 -6_infected_numbers_v1.csv", 
+                            col_types = paste0(c(rep("c", times = 5), 
+                                          rep("d", times = 37)), collapse = "")) %>%
+  dplyr::filter(stringr::str_starts(Strain, pattern = "CC"))
+data_num_allmice_rz <- apply(FUN = rankZ, X = data_num_allmice, MARGIN = 2) #distinct application of rankZ
+addcovar <- readr::read_csv("../data/raw_data/Behar_Batch1 -6_infected_numbers_v1.csv", 
+                            col_types = paste0(c(rep("c", times = 5), 
+                                          rep("d", times = 37)), collapse = "")) %>%
+  dplyr::filter(stringr::str_starts(Strain, pattern = "CC")) %>%
+  dplyr::select(c(2, 5)) %>%
+  as.matrix()
+rownames(addcovar) <- data_num_allmice$Mouse
+ac <- model.matrix(~ as.factor(addcovar[, 1, drop = FALSE]))
+ac2 <- cbind(ac, as.numeric(addcovar[, 2]))
+```
+
+
+
+There is likely be batch effects in the traits measurements. Let's see if we can find them. First, we'll examine effects of `Vaccination_status` on each trait.
+
+
+
+```{r}
+library(ggplot2)
+```
+
+```{r}
+plots <- list()
+for (i in 6:ncol(data_num_allmice)){ # skip first 5 columns of tibble
+  plots[[i]] <- tibble::tibble(mouse_id = data_num_allmice$Mouse, 
+                 trait_name = colnames(data_num_allmice)[i],
+                 trait_value = unlist(data_num_allmice[, i]), 
+                 vaccination_status = data_num_allmice$Vaccination_status,
+                 experiment = data_num_allmice$Experiment
+                   ) %>%
+    ggplot() + geom_boxplot(aes(x = vaccination_status, y = trait_value, colour = experiment)) + ggtitle(colnames(data_num_allmice)[i])
+}
+```
+
+```{r}
+do.call(gridExtra::grid.arrange, c(plots[- c(1:5)], ncol = 1))
+```
+
+```{r}
+ggpubr::ggarrange(plotlist = plots[-c(1:5)], ncol = 2)
+```
+
+## Using all 280 mice in mapping
+
+We previously used each mouse line exactly once in our mapping objects. The mapping above fails to account for batch effects. Let's make mapping objects for all mice. 
+
+
+
+```{r}
+behar_aprobs_allmice <- list()
+for (chr in 1:19){
+  dat <- array(data = NA, 
+               dim = c(280, 8, dim(behar_aprobs[[chr]])[[3]]))
+  rownames(dat) <- data_num_allmice$Mouse
+  dimnames(dat)[[2]] <- LETTERS[1:8]
+  dimnames(dat)[[3]] <- dimnames(behar_aprobs[[chr]][[3]])
+  for (i in 1:280){
+    mm <- which(rownames(behar_aprobs[[chr]]) == data_num_allmice$Strain[i])
+    dat[i, , ] <- behar_aprobs[[chr]][mm, , ]
+  }
+  behar_aprobs_allmice[[chr]] <- dat
+}
+names(behar_aprobs_allmice) <- as.character(1:19)
+# set attributes
+attributes(behar_aprobs_allmice)$names <- as.character(1:19)
+attributes(behar_aprobs_allmice)$is_x_chr <- rep(FALSE, 19)
+attributes(behar_aprobs_allmice)$crosstype <- "cc"
+attributes(behar_aprobs_allmice)$alleles <- LETTERS[1:8]
+attributes(behar_aprobs_allmice)$alleleprobs <- TRUE
+attributes(behar_aprobs_allmice)$class <- c("calc_genoprob", "list")
+```
+
+We calculate the kinship matrices for all 280 mice.
+
+```{r}
+behar_kinship_allmice <- qtl2::calc_kinship(probs = behar_aprobs_allmice, type = "loco")
+```
+
+And perform the QTL scan and permutations.
+
+```{r}
+rownames(data_num_allmice_rz) <- data_num_allmice$Mouse
+s1o_num <- qtl2::scan1(genoprobs = behar_aprobs_allmice, 
+                       pheno = data_num_allmice_rz, 
+                       kinship = behar_kinship_allmice, 
+                       reml = TRUE, 
+                       addcovar = ac2)
+permfn <- "../data/derived_data/cc_perms_allmice.rds"
+if (!file.exists(permfn)) {
+  s1perm <- qtl2::scan1perm(genoprobs = behar_aprobs_allmice, 
+                            pheno = data_num_allmice_rz, 
+                            kinship = behar_kinship_allmice, 
+                            reml = TRUE, 
+                            n_perm = 1000, 
+                            cores = nc)
+  saveRDS(s1perm, permfn)
+} else {
+  s1perm <- readRDS(permfn)
+  } 
+```
+
+```{r findpeaks-allmice}
+qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6) %>% 
+  tibble::as_tibble() %>%
+  dplyr::rename(trait = lodcolumn) %>%
+  dplyr::mutate(pvalue = purrr::map2_dbl(.x = trait, .y = lod, .f = function(x, y){
+    qtl2tb::get_pvalue(scan1perm_out = s1perm, lod = y, trait_name = x)$pvalue
+  })) %>%
+  dplyr::arrange(pvalue)
+```
 
 
