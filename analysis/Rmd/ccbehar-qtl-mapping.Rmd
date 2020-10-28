@@ -245,6 +245,8 @@ data_num_allmice <- readr::read_csv("../data/raw_data/Behar_Batch1 -6_infected_n
                                           rep("d", times = 37)), collapse = "")) %>%
   dplyr::filter(stringr::str_starts(Strain, pattern = "CC"))
 data_num_allmice_rz <- apply(FUN = rankZ, X = data_num_allmice, MARGIN = 2) #distinct application of rankZ
+rownames(data_num_allmice_rz) <- data_num_allmice$Mouse
+
 addcovar <- readr::read_csv("../data/raw_data/Behar_Batch1 -6_infected_numbers_v1.csv", 
                             col_types = paste0(c(rep("c", times = 5), 
                                           rep("d", times = 37)), collapse = "")) %>%
@@ -364,8 +366,8 @@ qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6) %>%
 ```
 
 
-```{r, eval = FALSE}
-qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6) %>% 
+```{r, eval = TRUE}
+qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6, prob = 0.95) %>% 
   tibble::as_tibble() %>%
   dplyr::rename(trait = lodcolumn) %>%
   dplyr::filter(trait != "Experiment", trait != "Source", trait != "Strain") %>%
