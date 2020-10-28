@@ -279,7 +279,7 @@ for (i in 6:ncol(data_num_allmice)){ # skip first 5 columns of tibble
 }
 ```
 
-```{r}
+```{r, eval = FALSE}
 do.call(gridExtra::grid.arrange, c(plots[- c(1:5)], ncol = 1))
 ```
 
@@ -297,10 +297,13 @@ We previously used each mouse line exactly once in our mapping objects. The mapp
 behar_aprobs_allmice <- list()
 for (chr in 1:19){
   dat <- array(data = NA, 
-               dim = c(280, 8, dim(behar_aprobs[[chr]])[[3]]))
+               dim = c(280, 
+                       8, 
+                       dim(behar_aprobs[[chr]])[[3]])
+               )
   rownames(dat) <- data_num_allmice$Mouse
   dimnames(dat)[[2]] <- LETTERS[1:8]
-  dimnames(dat)[[3]] <- dimnames(behar_aprobs[[chr]][[3]])
+  dimnames(dat)[[3]] <- dimnames(behar_aprobs[[chr]])[[3]]
   for (i in 1:280){
     mm <- which(rownames(behar_aprobs[[chr]]) == data_num_allmice$Strain[i])
     dat[i, , ] <- behar_aprobs[[chr]][mm, , ]
@@ -326,12 +329,15 @@ behar_kinship_allmice <- qtl2::calc_kinship(probs = behar_aprobs_allmice, type =
 And perform the QTL scan and permutations.
 
 ```{r}
-rownames(data_num_allmice_rz) <- data_num_allmice$Mouse
 s1o_num <- qtl2::scan1(genoprobs = behar_aprobs_allmice, 
                        pheno = data_num_allmice_rz, 
                        kinship = behar_kinship_allmice, 
                        reml = TRUE, 
                        addcovar = ac2)
+
+```
+
+```{r perms}
 permfn <- "../data/derived_data/cc_perms_allmice.rds"
 if (!file.exists(permfn)) {
   s1perm <- qtl2::scan1perm(genoprobs = behar_aprobs_allmice, 
@@ -347,6 +353,7 @@ if (!file.exists(permfn)) {
 ```
 
 ```{r findpeaks-allmice}
+
 qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6) %>% 
   tibble::as_tibble() %>%
   dplyr::rename(trait = lodcolumn) %>%
@@ -356,4 +363,38 @@ qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6) %>%
   dplyr::arrange(pvalue)
 ```
 
+
+```{r, eval = FALSE}
+qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6) %>% 
+  tibble::as_tibble() %>%
+  dplyr::rename(trait = lodcolumn) %>%
+  dplyr::filter(trait != "Experiment", trait != "Source", trait != "Strain") %>%
+  dplyr::arrange(desc(lod))
+```
+
+## Plots With B6 mice
+
+```{r b6}
+data_num_all_b6 <- readr::read_csv("../data/raw_data/Behar_Batch1 -6_infected_numbers_v1.csv", 
+                            col_types = paste0(c(rep("c", times = 5), 
+                                          rep("d", times = 37)), collapse = "")) 
+```
+
+```{r}
+plots <- list()
+for (i in 6:ncol(data_num_all_b6)){ # skip first 5 columns of tibble
+  plots[[i]] <- tibble::tibble(mouse_id = data_num_all_b6$Mouse, 
+                 trait_name = colnames(data_num_all_b6)[i],
+                 trait_value = unlist(data_num_all_b6[, i]), 
+                 vaccination_status = data_num_all_b6$Vaccination_status,
+                 experiment = data_num_all_b6$Experiment,
+                 line = data_num_all_b6$Strain
+                   ) %>%
+    ggplot() + geom_boxplot(aes(y = trait_value, x = vaccination_status, colour = line )) + facet_wrap(~ experiment) + ggtitle(colnames(data_num_all_b6)[i])
+}
+```
+
+```{r}
+ggpubr::ggarrange(plotlist = plots[-c(1:5)], ncol = 1)
+```
 
