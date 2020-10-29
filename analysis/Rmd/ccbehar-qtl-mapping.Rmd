@@ -347,6 +347,7 @@ if (!file.exists(permfn)) {
                             kinship = behar_kinship_allmice, 
                             reml = TRUE, 
                             n_perm = 1000, 
+                            addcovar = ac2,
                             cores = nc)
   saveRDS(s1perm, permfn)
 } else {
@@ -356,12 +357,13 @@ if (!file.exists(permfn)) {
 
 ```{r findpeaks-allmice}
 
-qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 6) %>% 
+qtl2::find_peaks(s1o_num, map = map.1, peakdrop = 1.5, threshold = 3, prob = 0.95) %>% 
   tibble::as_tibble() %>%
   dplyr::rename(trait = lodcolumn) %>%
   dplyr::mutate(pvalue = purrr::map2_dbl(.x = trait, .y = lod, .f = function(x, y){
     qtl2tb::get_pvalue(scan1perm_out = s1perm, lod = y, trait_name = x)$pvalue
   })) %>%
+  dplyr::filter(trait != "Experiment", trait != "Source", trait != "Strain", trait != "Vaccination_status") %>%
   dplyr::arrange(pvalue)
 ```
 
@@ -392,7 +394,7 @@ for (i in 6:ncol(data_num_all_b6)){ # skip first 5 columns of tibble
                  experiment = data_num_all_b6$Experiment,
                  line = data_num_all_b6$Strain
                    ) %>%
-    ggplot() + geom_boxplot(aes(y = trait_value, x = vaccination_status, colour = line )) + facet_wrap(~ experiment) + ggtitle(colnames(data_num_all_b6)[i])
+    ggplot() + geom_boxplot(aes(y = trait_value, x = vaccination_status, colour = line, alpha = experiment )) + ggtitle(colnames(data_num_all_b6)[i])
 }
 ```
 
