@@ -347,7 +347,7 @@ if (!file.exists(permfn)) {
                             kinship = behar_kinship_allmice, 
                             reml = TRUE, 
                             n_perm = 1000, 
-                            addcovar = ac2,
+                            addcovar = ac2, # check that these inputs are the same as inputs above to scan1!!
                             cores = nc)
   saveRDS(s1perm, permfn)
 } else {
