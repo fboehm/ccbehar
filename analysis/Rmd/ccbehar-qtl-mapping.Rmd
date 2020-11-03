@@ -3,7 +3,17 @@ title: "Initial QTL mapping with flow cytometry traits"
 author: "Frederick J. Boehm"
 date: "10/7/2020"
 output: html_document
+params:
+  lastmod: !r lubridate::now()
 ---
+
+Last modified:
+
+```{r}
+params$lastmod
+```
+
+
 
 ```{r setup2, include=TRUE, dev="CairoPNG"}
 knitr::opts_chunk$set(dev="CairoPNG")
@@ -15,7 +25,7 @@ knitr::opts_chunk$set(dev="CairoPNG")
 ```{r setup, include=TRUE}
 knitr::opts_chunk$set(echo = TRUE)
 library(magrittr)
-nc <- 16
+nc <- 1
 ```
 
 After reading in the traits from the csv files, we want to rankZ transform the traits before mapping. 
@@ -244,7 +254,7 @@ data_num_allmice <- readr::read_csv("../data/raw_data/Behar_Batch1 -6_infected_n
                             col_types = paste0(c(rep("c", times = 5), 
                                           rep("d", times = 37)), collapse = "")) %>%
   dplyr::filter(stringr::str_starts(Strain, pattern = "CC"))
-data_num_allmice_rz <- apply(FUN = rankZ, X = data_num_allmice, MARGIN = 2) #distinct application of rankZ
+data_num_allmice_rz <- apply(FUN = rankZ, X = data_num_allmice[, -c(1:5)], MARGIN = 2) #distinct application of rankZ
 rownames(data_num_allmice_rz) <- data_num_allmice$Mouse
 
 addcovar <- readr::read_csv("../data/raw_data/Behar_Batch1 -6_infected_numbers_v1.csv", 
@@ -281,7 +291,7 @@ for (i in 6:ncol(data_num_allmice)){ # skip first 5 columns of tibble
 }
 ```
 
-```{r, eval = FALSE}
+```{r}
 do.call(gridExtra::grid.arrange, c(plots[- c(1:5)], ncol = 1))
 ```
 
@@ -387,18 +397,73 @@ data_num_all_b6 <- readr::read_csv("../data/raw_data/Behar_Batch1 -6_infected_nu
 ```{r}
 plots <- list()
 for (i in 6:ncol(data_num_all_b6)){ # skip first 5 columns of tibble
-  plots[[i]] <- tibble::tibble(mouse_id = data_num_all_b6$Mouse, 
+  dd <- tibble::tibble(mouse_id = data_num_all_b6$Mouse, 
                  trait_name = colnames(data_num_all_b6)[i],
                  trait_value = unlist(data_num_all_b6[, i]), 
                  vaccination_status = data_num_all_b6$Vaccination_status,
                  experiment = data_num_all_b6$Experiment,
                  line = data_num_all_b6$Strain
                    ) %>%
-    ggplot() + geom_boxplot(aes(y = trait_value, x = vaccination_status, colour = line, alpha = experiment )) + ggtitle(colnames(data_num_all_b6)[i])
+    dplyr::filter(!is.na(line))
+foo <- dd %>%
+    ggplot() + geom_jitter(aes(y = trait_value, x = vaccination_status, colour = (line ==  "C57BL6" | line == "C57BL/6"), line = line)) + facet_wrap(~experiment) + ggtitle(colnames(data_num_all_b6)[i]) 
+plots[[i]] <- foo %>% plotly::ggplotly()
 }
+plots %>% htmltools::tagList()
+```
+
+## rankZ-transformed traits plotted
+
+
+```{r}
+plots <- list()
+for (i in 6:ncol(data_num_all_b6)){ # skip first 5 columns of tibble
+  dd <- tibble::tibble(mouse_id = data_num_all_b6$Mouse, 
+                 trait_name = colnames(data_num_all_b6)[i],
+                 trait_value = rankZ(unlist(data_num_all_b6[, i])), 
+                 vaccination_status = data_num_all_b6$Vaccination_status,
+                 experiment = data_num_all_b6$Experiment,
+                 line = data_num_all_b6$Strain
+                   ) %>%
+    dplyr::filter(!is.na(line))
+foo <- dd %>%
+    ggplot() + geom_jitter(aes(y = trait_value, x = vaccination_status, colour = (line ==  "C57BL6" | line == "C57BL/6"), line = line)) + facet_wrap(~experiment) + ggtitle(colnames(data_num_all_b6)[i]) 
+  plots[[i]] <- foo %>% plotly::ggplotly()
+}
+plots %>% htmltools::tagList()
 ```
 
 ```{r}
-ggpubr::ggarrange(plotlist = plots[-c(1:5)], ncol = 1)
+plots <- list()
+for (i in 6:ncol(data_num_all_b6)){ # skip first 5 columns of tibble
+  dd <- tibble::tibble(mouse_id = data_num_all_b6$Mouse, 
+                 trait_name = colnames(data_num_all_b6)[i],
+                 trait_value = rankZ(unlist(data_num_all_b6[, i])), 
+                 vaccination_status = data_num_all_b6$Vaccination_status,
+                 experiment = data_num_all_b6$Experiment,
+                 line = data_num_all_b6$Strain
+                   ) %>%
+    dplyr::filter(!is.na(line)) %>%
+    dplyr::filter(line == "C57BL6" | line == "C57BL/6")
+foo <- dd %>%
+    ggplot() + geom_point(aes(y = trait_value, x = experiment, line = line, colour = vaccination_status)) + ggtitle(colnames(data_num_all_b6)[i]) 
+  plots[[i]] <- foo %>% plotly::ggplotly()
+}
+plots %>% htmltools::tagList()
 ```
+
+```{r}
+plots <- list()
+dat_all_rz <- data_num_all_b6 %>%
+  dplyr::filter(!is.na(Strain)) %>%
+  dplyr::select(- c(1:5)) %>%
+  as.matrix() %>%
+  apply(FUN = rankZ, MARGIN = 2)
+data_num_all_b6 %>%
+  dplyr::filter(Strain == "C57BL6" | Strain == "C57BL/6") %>%
+  dplyr::group_by(Experiment) %>%
+  dplyr::summarise_at(vars(Lung_CFU:CD4_media_TNF_IL2), list(mean, sd), na.rm = TRUE)
+
+```
+
 
